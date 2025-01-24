@@ -1,4 +1,4 @@
-from playwright.sync_api import Playwright, sync_playwright
+from playwright.sync_api import Playwright, sync_playwright, expect
 from openpyxl import load_workbook
 from bs4 import BeautifulSoup
 import datetime as dt
@@ -20,7 +20,7 @@ def wait_for_element(element, timer=20):
         time.sleep(1)
         if element.count() > 0:
             return 1
-    raise Exception(f"Element {element} not found!")
+    return 0
 
 def parse_prices(price):
     if price != "-":
@@ -39,6 +39,9 @@ def find_element_text(item, tag, attrs):
 
 def fetch_restaurant_menu(soup):
     menu_items_list = soup.find_all("div", attrs={"class":"dish-card-wrapper"})
+    if not menu_items_list:
+        return 0
+    
     names_lst = []
     details_lst = []
     info_serves_lst = []
@@ -69,7 +72,7 @@ def fetch_restaurant_menu(soup):
         original_price_lst.append(original_price)
 
     print(f"Collected {len(menu_items_list)} items...")
-    
+    # Generating dataframe from collected data
     data = {"nome_item":names_lst,
             "descricao":details_lst,
             "pessoas_servidas":info_serves_lst,
@@ -93,7 +96,6 @@ def run(playwright: Playwright, address, search_word) -> None:
 
     # Clicking first address option
     address_search_list = page.locator("[class=\"address-search-list\"]").get_by_role("button")
-    wait_for_element(address_search_list)
     address_search_list.nth(0).click()
 
     # Confirming address
@@ -110,45 +112,63 @@ def run(playwright: Playwright, address, search_word) -> None:
 
     # Waiting for restaurants to load up
     restaurants_elements_list = page.locator("[class=\"merchant-list-v2__item-wrapper\"]")
-    wait_for_element(restaurants_elements_list)
+    if not wait_for_element(restaurants_elements_list):
+        print(f"There are no restaurants for search word: {search_word}...")
+        context.close()
+        browser.close()
+        return 0
 
     # Saving search URL
     saved_search_url = page.url
 
     # Starting to collect menus
     df_lst = []
+    count_restaurants = 0 
     for i in range(0, restaurants_elements_list.count()):
-        print(f"Collecting restaurant {i+1}...")
+        print(f"Collecting restaurant {count_restaurants+1}...")
         # Only collecting first 10 restaurants
-        if i>=10:
+        if count_restaurants>=10:
             break
-
-        elements = page.locator("[class=\"merchant-list-v2__item-wrapper\"]")
-        wait_for_element(elements)
-        ele = elements.nth(i)
-
+        # This will always work, as i goes up to number of elements found in restaurants_elements_list
+        ele = restaurants_elements_list.nth(i)
         restaurant_name = ele.locator("[class=\"merchant-v2__name\"]").inner_text() if ele.locator("[class=\"merchant-v2__name\"]").count() > 0 else "-"
+        restaurant_search_word_info = ele.locator("[class=\"merchant-v2__info\"]").inner_text() if ele.locator("[class=\"merchant-v2__info\"]").count() > 0 else "-"
+        restaurant_search_word_info = re.findall(search_word, restaurant_search_word_info)
+        # Checking if the restaurant has the search word category, otherwise, we ignore it...
+        if search_word not in restaurant_search_word_info:
+            print(f"Search Word not present in restaurant_search_word_info = {restaurant_search_word_info}...")
+            continue
         ele.click()
         # Fetching HTML
         restaurant_menu_wrapper = page.locator("[class=\"restaurant__fast-menu\"]")
+        # Waiting for dishes to load up (Otherwise, we get an empty HTML)
         dish_wrapper = restaurant_menu_wrapper.locator("[class=\"dish-card-wrapper\"]")
         wait_for_element(dish_wrapper)
         menu_html = restaurant_menu_wrapper.inner_html()
         # Fetching Menu
         soup = BeautifulSoup(menu_html, "html.parser")
         df_menu = fetch_restaurant_menu(soup)
+        # If the tab is not restaurant like (Supermarket/Beverages, etc)
+        if isinstance(df_menu, int):
+            print("This is not a restaurant...")
+            break
         # Adding Restaurant Name and Searchword to the DataFrame
         df_menu.insert(loc=0, column='nome_restaurante', value=restaurant_name)
         df_menu.insert(loc=1, column='palavra_chave', value=search_word)
         df_lst.append(df_menu)
+        # Incrementing restaurant counter
+        count_restaurants += 1
         # Returning to the Search Page (Restaurants)
         page.goto(saved_search_url)
-        time.sleep(60)
-
+        time.sleep(10)
     # ---------------------
     context.close()
     browser.close()
 
+    # When no restaurants have been found
+    if not df_lst:
+        return 0
+    # If we have found restaurants
     df = pd.concat(df_lst)
     # Outputting file to a folder where we use as backup, so if we get IP blocked, we do not lose all progress
     file_path = f"outputs/coleta-menus-{search_word}-{dt.datetime.today().strftime("%d-%m-%Y")}.xlsx"
@@ -157,9 +177,7 @@ def run(playwright: Playwright, address, search_word) -> None:
 
 
 with sync_playwright() as playwright:
-    max_restaurants = 10
     address = "Avenida João Pinheiro, 100. Centro - Belo Horizonte"
-
     with open("search_words.txt", "r", encoding="utf-8") as f:
         search_words = f.read().splitlines()
 
@@ -167,20 +185,20 @@ with sync_playwright() as playwright:
         # Skipping those already collected
         if ":d" in search_word:
             continue
-        # Only collecting first 10 restaurants
         search_word = search_word[:-2] # Ignoring the "collected tag" (which shows wether we should collect this keyword or not), it helps with backup
-        if index < max_restaurants:
-            print(f"Collecting search word: {search_word}")
-            df_search_word = run(playwright, address, search_word)
-            if isinstance(df_search_word, pd.DataFrame):
-                search_words[index] = search_word + ":d" # Setting "collected tag" as "d" for Done (to not collect after it something goes wrong)
-                # Writing back to the text file so we can save the collect progress
-                with open("search_words.txt", "w+", encoding="utf-8") as f:
-                    f.write("\n".join(search_words))
-                print(f"Finished collecting search word: {search_word}")
-
-        # Sleeping for 5 minutes in order to avoid IP block (This feature is optional, but makes things more consistent)
-        time.sleep(300)
+        print(f"Collecting search word: {search_word}")
+        df_search_word = run(playwright, address, search_word)
+        if isinstance(df_search_word, pd.DataFrame):
+            search_words[index] = search_word + ":d" # Setting "collected tag" as "d" for Done (to not collect after it something goes wrong)
+            # Writing back to the text file so we can save the collect progress
+            with open("search_words.txt", "w+", encoding="utf-8") as f:
+                f.write("\n".join(search_words))
+            print(f"Finished collecting search word: {search_word}")
+        elif isinstance(df_search_word, int):
+            print("Moving to the next search word, as the current search word yields no restaurants...")
+            continue
+        # Sleeping for 3 minutes in order to avoid IP block (This feature is optional, but makes things more consistent)
+        time.sleep(180)
     
     # Fetching all backups into a file
     df_lst = []
