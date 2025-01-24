@@ -82,7 +82,7 @@ def fetch_restaurant_menu(soup):
 def run(playwright: Playwright, address, search_word) -> None:
     browser = playwright.chromium.launch(headless=False)
     user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
-    context = browser.new_context(user_agent=user_agent, geolocation={"latitude":-19.890570990751865,"longitude":-43.997757361113414}, locale="pt-BR", permissions=["geolocation"], timezone_id="Brazil/East")
+    context = browser.new_context(user_agent=user_agent, geolocation={"latitude":-19.860570990751865,"longitude":-43.967757361113414}, locale="pt-BR", permissions=["geolocation"], timezone_id="Brazil/East")
     page = context.new_page()
     # Enter website
     page.goto("https://www.ifood.com.br/")
@@ -142,7 +142,8 @@ def run(playwright: Playwright, address, search_word) -> None:
         df_menu.insert(loc=1, column='palavra_chave', value=search_word)
         df_lst.append(df_menu)
         # Returning to the Search Page (Restaurants)
-        page.goto(saved_search_url)    
+        page.goto(saved_search_url)
+        time.sleep(60)
 
     # ---------------------
     context.close()
@@ -177,6 +178,9 @@ with sync_playwright() as playwright:
                 with open("search_words.txt", "w+", encoding="utf-8") as f:
                     f.write("\n".join(search_words))
                 print(f"Finished collecting search word: {search_word}")
+
+        # Sleeping for 5 minutes in order to avoid IP block (This feature is optional, but makes things more consistent)
+        time.sleep(300)
     
     # Fetching all backups into a file
     df_lst = []
