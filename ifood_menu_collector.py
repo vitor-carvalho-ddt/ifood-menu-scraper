@@ -125,10 +125,10 @@ def run(playwright: Playwright, address, search_word) -> None:
     df_lst = []
     count_restaurants = 0 
     for i in range(0, restaurants_elements_list.count()):
-        print(f"Collecting restaurant {count_restaurants+1}...")
         # Only collecting first 10 restaurants
         if count_restaurants>=10:
             break
+        print(f"Collecting restaurant {count_restaurants+1}...")
         # This will always work, as i goes up to number of elements found in restaurants_elements_list
         ele = restaurants_elements_list.nth(i)
         restaurant_name = ele.locator("[class=\"merchant-v2__name\"]").inner_text() if ele.locator("[class=\"merchant-v2__name\"]").count() > 0 else "-"
