@@ -1,8 +1,11 @@
-import re
-from playwright.sync_api import Playwright, Page, sync_playwright, expect
+from playwright.sync_api import Playwright, sync_playwright
+from openpyxl import load_workbook
 from bs4 import BeautifulSoup
-import time
+import datetime as dt
 import pandas as pd
+import time
+import re
+import os
 ## TEST RUN LINE ON BASH:
 ## ALL THIS DATA IS REGARDING BELO HORIZONTE - MG
 ## GEOLOCATION IS REGARDING - Federal University of Minas Gerais (UFMG)
@@ -12,11 +15,27 @@ import pandas as pd
 
 ## Function to await for element up to a gicen time
 def wait_for_element(element, timer=20):
+    time.sleep(1)
     for i in range(1, timer):
         time.sleep(1)
         if element.count() > 0:
             return 1
     raise Exception(f"Element {element} not found!")
+
+def parse_prices(price):
+    if price != "-":
+        prices_list = re.findall(r'[0-9]+[\.\,][0-9]+', price)
+        if prices_list:
+            price = prices_list[0].strip().replace(",", ".")
+            return float(price)
+    return price
+
+def find_element_text(item, tag, attrs):
+    if item.find(tag, attrs=attrs):
+        texts = item.find(tag, attrs=attrs).find_all(string=True, recursive=False)
+        if texts:
+            return texts[0]
+    return "-"
 
 def fetch_restaurant_menu(soup):
     menu_items_list = soup.find_all("div", attrs={"class":"dish-card-wrapper"})
@@ -28,12 +47,19 @@ def fetch_restaurant_menu(soup):
     original_price_lst = []
 
     for item in menu_items_list:
-        name = item.find("h3", attrs={"class":"dish-card__description"}).get_text() if item.find("h3", attrs={"class":"dish-card__description"}) else "-"
-        details = item.find("span", attrs={"class":"dish-card__details"}).get_text() if item.find("span", attrs={"class":"dish-card__details"}) else "-"
-        info_serves = item.find("span", attrs={"class":"dish-info-serves__title"}).get_text() if item.find("span", attrs={"class":"dish-info-serves__title"}) else "-"
-        info_weight = item.find("span", attrs={"class":"dish-info-weight__title"}).get_text() if item.find("span", attrs={"class":"dish-info-weight__title"}) else "-"
-        discounted_price = item.find("span", attrs={"class":"dish-card__price--discount"}).get_text() if item.find("span", attrs={"class":"dish-card__price--discount"}) else "-"
-        original_price = item.find("span", attrs={"class":"dish-card__price--original"}).get_text() if item.find("span", attrs={"class":"dish-card__price--original"}) else "-"
+        name = find_element_text(item, tag="h3", attrs={"class":"dish-card__description"})
+        details = find_element_text(item, tag="span", attrs={"class":"dish-card__details"})
+        info_serves = find_element_text(item, tag="span", attrs={"class":"dish-info-serves__title"})
+        info_weight = find_element_text(item, tag="span", attrs={"class":"dish-info-weight__title"})
+        discounted_price = find_element_text(item, tag="span", attrs={"class":"dish-card__price--discount"})
+        if discounted_price != "-":
+            original_price = find_element_text(item, tag="span", attrs={"class":"dish-card__price--original"})
+        else:
+            original_price = find_element_text(item, tag="span", attrs={"class":"dish-card__price"})
+
+        # Parsing prices
+        discounted_price = parse_prices(discounted_price)
+        original_price = parse_prices(original_price)
 
         names_lst.append(name)
         details_lst.append(details)
@@ -42,52 +68,66 @@ def fetch_restaurant_menu(soup):
         discounted_price_lst.append(discounted_price)
         original_price_lst.append(original_price)
 
+    print(f"Collected {len(menu_items_list)} items...")
     
-    data = {"Nome":names_lst,
-            "Descrição":details_lst,
-            "Pessoas Servidas":info_serves_lst,
-            "Peso/Tamanho Porção":info_weight_lst,
-            "Preço com Desconto":discounted_price_lst,
-            "Preço sem Desconto":original_price_lst}
+    data = {"nome_item":names_lst,
+            "descricao":details_lst,
+            "pessoas_servidas":info_serves_lst,
+            "peso_tamanho_porcao":info_weight_lst,
+            "preco_com_desconto":discounted_price_lst,
+            "preco_original":original_price_lst}
     df_menu = pd.DataFrame(data)
     return df_menu
 
-def run(playwright: Playwright) -> None:
+def run(playwright: Playwright, address, search_word) -> None:
     browser = playwright.chromium.launch(headless=False)
-    context = browser.new_context(geolocation={"latitude":-19.870570990751865,"longitude":-43.967757361113414}, locale="pt-BR", permissions=["geolocation"], timezone_id="Brazil/East")
+    user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+    context = browser.new_context(user_agent=user_agent, geolocation={"latitude":-19.890570990751865,"longitude":-43.997757361113414}, locale="pt-BR", permissions=["geolocation"], timezone_id="Brazil/East")
     page = context.new_page()
+    # Enter website
     page.goto("https://www.ifood.com.br/")
+    # Searching Address
     page.get_by_placeholder("Em qual endereço você está?").click()
     page.get_by_role("button", name="Buscar endereço e número").click()
-    page.get_by_role("textbox", name="Buscar endereço e número").fill("UFMG")
-    page.locator("[data-test-id=\"button-address-ChIJfeZrgO6QpgAR3REops6RE7s\"]").get_by_role("button").click()
+    page.get_by_role("textbox", name="Buscar endereço e número").fill(address)
+
+    # Clicking first address option
+    address_search_list = page.locator("[class=\"address-search-list\"]").get_by_role("button")
+    wait_for_element(address_search_list)
+    address_search_list.nth(0).click()
+
+    # Confirming address
     page.get_by_role("button", name="Confirmar localização").click()
     page.get_by_role("button", name="Salvar endereço").click()
+
+    # Entering Restaurants tab
     page.get_by_role("link", name="Restaurantes").click()
 
+    # Filling Search Word
     page.locator("[data-test-id=\"search-input-field\"]").click()
-    page.locator("[data-test-id=\"search-input-field\"]").press("CapsLock")
-    page.locator("[data-test-id=\"search-input-field\"]").fill("HAMBURGUER")
+    page.locator("[data-test-id=\"search-input-field\"]").fill(search_word)
     page.locator("[data-test-id=\"search-input-field\"]").press("Enter")
 
-    restaurants_outer_containter = page.locator("[data-test-id=\"cardstack-section-container\"]")
-    wait_for_element(restaurants_outer_containter)
+    # Waiting for restaurants to load up
+    restaurants_elements_list = page.locator("[class=\"merchant-list-v2__item-wrapper\"]")
+    wait_for_element(restaurants_elements_list)
 
-    restaurants_inner_containter = restaurants_outer_containter.locator("[class=\"merchant-list-v2__wrapper\"]")
-    restaurants_elements_list = restaurants_inner_containter.locator("[class=\"merchant-list-v2__item-wrapper\"]")
+    # Saving search URL
     saved_search_url = page.url
 
-    print(f"Page URL: {saved_search_url}")
-    print(f"restaurants_outer_containter: {restaurants_outer_containter.count()}")
-    print(f"restaurants_inner_containter: {restaurants_inner_containter.count()}")
-    print(f"restaurants_elements_list:{restaurants_elements_list.count()}")
-
+    # Starting to collect menus
+    df_lst = []
     for i in range(0, restaurants_elements_list.count()):
+        print(f"Collecting restaurant {i+1}...")
+        # Only collecting first 10 restaurants
         if i>=10:
             break
-        ele = restaurants_elements_list.nth(i)
-        print(f"Index:{i}")
-        print(f"Element link:{ele.get_by_role("link").get_attribute('href')}")
+
+        elements = page.locator("[class=\"merchant-list-v2__item-wrapper\"]")
+        wait_for_element(elements)
+        ele = elements.nth(i)
+
+        restaurant_name = ele.locator("[class=\"merchant-v2__name\"]").inner_text() if ele.locator("[class=\"merchant-v2__name\"]").count() > 0 else "-"
         ele.click()
         # Fetching HTML
         restaurant_menu_wrapper = page.locator("[class=\"restaurant__fast-menu\"]")
@@ -97,13 +137,45 @@ def run(playwright: Playwright) -> None:
         # Fetching Menu
         soup = BeautifulSoup(menu_html, "html.parser")
         df_menu = fetch_restaurant_menu(soup)
-        df_menu.to_excel(f"restaurante_{i+1}.xlsx")
+        # Adding Restaurant Name and Searchword to the DataFrame
+        df_menu.insert(loc=0, column='nome_restaurante', value=restaurant_name)
+        df_menu.insert(loc=1, column='palavra_chave', value=search_word)
+        df_lst.append(df_menu)
+        # Returning to the Search Page (Restaurants)
         page.goto(saved_search_url)    
 
     # ---------------------
     context.close()
     browser.close()
 
+    return pd.concat(df_lst)
+
 
 with sync_playwright() as playwright:
-    run(playwright)
+    address = "Avenida João Pinheiro, 100. Centro - Belo Horizonte"
+
+    with open("search_words.txt", "r", encoding="utf-8") as f:
+        search_words = f.read().splitlines()
+
+    df_lst = []
+    for index, search_word in enumerate(search_words):
+        if index < 10:
+            print(f"Collecting search word: {search_word}")
+            df_search_word = run(playwright, address, search_word)
+            if isinstance(df_search_word, pd.DataFrame):
+                df_lst.append(df_search_word)
+                print(f"Finished collecting search word: {search_word}")
+    
+    if df_lst:
+        file_path = f"coleta-menus-{dt.datetime.today().strftime("%d-%m-%Y")}.xlsx"
+        df_complete = pd.concat(df_lst)
+        df_complete.to_excel(file_path, sheet_name="dados-menu-restaurantes", index=False)
+
+        # Parsing workbook with Fiter on Header
+        wb = load_workbook(file_path)
+        ws = wb.active
+        # Setting Filters
+        ws.auto_filter.ref = ws.dimensions
+        wb.save(file_path)
+        wb.close()
+        print("Scraping has been successful!")
