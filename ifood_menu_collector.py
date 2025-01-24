@@ -148,34 +148,57 @@ def run(playwright: Playwright, address, search_word) -> None:
     context.close()
     browser.close()
 
-    return pd.concat(df_lst)
+    df = pd.concat(df_lst)
+    # Outputting file to a folder where we use as backup, so if we get IP blocked, we do not lose all progress
+    file_path = f"outputs/coleta-menus-{search_word}-{dt.datetime.today().strftime("%d-%m-%Y")}.xlsx"
+    df.to_excel(file_path)
+    return df
 
 
 with sync_playwright() as playwright:
+    max_restaurants = 10
     address = "Avenida João Pinheiro, 100. Centro - Belo Horizonte"
 
     with open("search_words.txt", "r", encoding="utf-8") as f:
         search_words = f.read().splitlines()
 
-    df_lst = []
     for index, search_word in enumerate(search_words):
-        if index < 10:
+        # Skipping those already collected
+        if ":d" in search_word:
+            continue
+        # Only collecting first 10 restaurants
+        search_word = search_word[:-2] # Ignoring the "collected tag" (which shows wether we should collect this keyword or not), it helps with backup
+        if index < max_restaurants:
             print(f"Collecting search word: {search_word}")
             df_search_word = run(playwright, address, search_word)
             if isinstance(df_search_word, pd.DataFrame):
-                df_lst.append(df_search_word)
+                search_words[index] = search_word + ":d" # Setting "collected tag" as "d" for Done (to not collect after it something goes wrong)
+                # Writing back to the text file so we can save the collect progress
+                with open("search_words.txt", "w+", encoding="utf-8") as f:
+                    f.write("\n".join(search_words))
                 print(f"Finished collecting search word: {search_word}")
     
-    if df_lst:
-        file_path = f"coleta-menus-{dt.datetime.today().strftime("%d-%m-%Y")}.xlsx"
-        df_complete = pd.concat(df_lst)
-        df_complete.to_excel(file_path, sheet_name="dados-menu-restaurantes", index=False)
+    # Fetching all backups into a file
+    df_lst = []
+    directory = "outputs"
+    for file in os.listdir():
+        f = os.path.join(directory, file)
+        # checking if it is a file
+        if os.path.isfile(f):
+            df_lst.append(pd.read_excel(f))
 
-        # Parsing workbook with Fiter on Header
-        wb = load_workbook(file_path)
-        ws = wb.active
-        # Setting Filters
-        ws.auto_filter.ref = ws.dimensions
-        wb.save(file_path)
-        wb.close()
-        print("Scraping has been successful!")
+    if not df_lst:
+        raise Exception("No backup collected files!")
+    
+    file_path = f"coleta-menus-{dt.datetime.today().strftime("%d-%m-%Y")}.xlsx"
+    df_complete = pd.concat(df_lst)
+    df_complete.to_excel(file_path, sheet_name="dados-menu-restaurantes", index=False)
+
+    # Parsing workbook with Fiter on Header
+    wb = load_workbook(file_path)
+    ws = wb.active
+    # Setting Filters
+    ws.auto_filter.ref = ws.dimensions
+    wb.save(file_path)
+    wb.close()
+    print("Scraping has been successful!")
