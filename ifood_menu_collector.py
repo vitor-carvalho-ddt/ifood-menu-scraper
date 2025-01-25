@@ -160,6 +160,7 @@ def run(playwright: Playwright, address, search_word) -> None:
         count_restaurants += 1
         # Returning to the Search Page (Restaurants)
         page.goto(saved_search_url)
+        # Delay between clicking os restaurants
         time.sleep(10)
     # ---------------------
     context.close()
@@ -175,6 +176,32 @@ def run(playwright: Playwright, address, search_word) -> None:
     df.to_excel(file_path)
     return df
 
+def generate_final_spreadsheet():
+    # Fetching all backups into a file
+    df_lst = []
+    directory = "outputs"
+    for file in os.listdir(directory):
+        f = os.path.join(directory, file)
+        # checking if it is a file
+        if os.path.isfile(f):
+            df_lst.append(pd.read_excel(f))
+
+    if not df_lst:
+        raise Exception("No backup collected files!")
+    
+    file_path = f"coleta-menus-{dt.datetime.today().strftime("%d-%m-%Y")}.xlsx"
+    # Concatenating all data and deleting "Unnamed: 0" column
+    df_complete = pd.concat(df_lst).iloc[:,1:]
+    df_complete.to_excel(file_path, sheet_name="dados-menu-restaurantes", index=False)
+
+    # Parsing workbook with Fiter on Header
+    wb = load_workbook(file_path)
+    ws = wb.active
+    # Setting Filters
+    ws.auto_filter.ref = ws.dimensions
+    wb.save(file_path)
+    wb.close()
+    print("Scraping has been successful!")
 
 with sync_playwright() as playwright:
     address = "Avenida João Pinheiro, 100. Centro - Belo Horizonte"
@@ -196,31 +223,8 @@ with sync_playwright() as playwright:
             print(f"Finished collecting search word: {search_word}")
         elif isinstance(df_search_word, int):
             print("Moving to the next search word, as the current search word yields no restaurants...")
-            continue
-        # Sleeping for 3 minutes in order to avoid IP block (This feature is optional, but makes things more consistent)
-        time.sleep(180)
+        # Sleeping for 2 minutes in order to avoid IP block (This feature is optional, but makes things more consistent)
+        time.sleep(120)
     
-    # Fetching all backups into a file
-    df_lst = []
-    directory = "outputs"
-    for file in os.listdir():
-        f = os.path.join(directory, file)
-        # checking if it is a file
-        if os.path.isfile(f):
-            df_lst.append(pd.read_excel(f))
-
-    if not df_lst:
-        raise Exception("No backup collected files!")
-    
-    file_path = f"coleta-menus-{dt.datetime.today().strftime("%d-%m-%Y")}.xlsx"
-    df_complete = pd.concat(df_lst)
-    df_complete.to_excel(file_path, sheet_name="dados-menu-restaurantes", index=False)
-
-    # Parsing workbook with Fiter on Header
-    wb = load_workbook(file_path)
-    ws = wb.active
-    # Setting Filters
-    ws.auto_filter.ref = ws.dimensions
-    wb.save(file_path)
-    wb.close()
-    print("Scraping has been successful!")
+    # When all scraping part has finished
+    generate_final_spreadsheet()
