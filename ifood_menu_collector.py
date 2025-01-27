@@ -22,6 +22,21 @@ def wait_for_element(element, timer=20):
             return 1
     return 0
 
+
+
+
+def wait_for_text_data(element, max_attempts):
+    attempts = 0
+    while element.all_inner_texts() == []:
+        if attempts == max_attempts:
+            return 0
+        time.sleep(1)
+        attempts += 1
+    return 1
+
+
+
+
 def parse_prices(price):
     if price != "-":
         prices_list = re.findall(r'[0-9]+[\.\,][0-9]+', price)
@@ -30,12 +45,18 @@ def parse_prices(price):
             return float(price)
     return price
 
+
+
+
 def find_element_text(item, tag, attrs):
     if item.find(tag, attrs=attrs):
         texts = item.find(tag, attrs=attrs).find_all(string=True, recursive=False)
         if texts:
             return texts[0]
     return "-"
+
+
+
 
 def fetch_restaurant_menu(soup):
     menu_items_list = soup.find_all("div", attrs={"class":"dish-card-wrapper"})
@@ -82,7 +103,25 @@ def fetch_restaurant_menu(soup):
     df_menu = pd.DataFrame(data)
     return df_menu
 
-def run(playwright: Playwright, address, search_word) -> None:
+
+
+
+def fetch_restaurants_url(soup):
+    search_word_restaurants_urls = []
+    all_restaurants = soup.find_all("div", attrs={"class":"merchant-list-v2__item-wrapper"})
+    for restaurant in all_restaurants:
+        description = find_element_text(restaurant, tag="div", attrs={"class":"merchant-v2__info"})
+        if search_word in description:
+            url = "https://www.ifood.com.br" + restaurant.find("a").get("href")
+            search_word_restaurants_urls.append(url)
+
+    print(f"URLs: {"\n".join(search_word_restaurants_urls)}")
+    return search_word_restaurants_urls
+
+
+
+
+def collect_search_word(playwright: Playwright, address, search_word) -> None:
     browser = playwright.chromium.launch(headless=False)
     user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
     context = browser.new_context(user_agent=user_agent, geolocation={"latitude":-19.860570990751865,"longitude":-43.967757361113414}, locale="pt-BR", permissions=["geolocation"], timezone_id="Brazil/East")
@@ -110,71 +149,73 @@ def run(playwright: Playwright, address, search_word) -> None:
     page.locator("[data-test-id=\"search-input-field\"]").fill(search_word)
     page.locator("[data-test-id=\"search-input-field\"]").press("Enter")
 
-    # Waiting for restaurants to load up
-    restaurants_elements_list = page.locator("[class=\"merchant-list-v2__item-wrapper\"]")
-    if not wait_for_element(restaurants_elements_list):
-        print(f"There are no restaurants for search word: {search_word}...")
-        context.close()
-        browser.close()
+    # Waiting for restaurant data to load up
+    restaurants_elements_list = page.locator("[class=\"merchant-list-v2\"]")
+    if not wait_for_text_data(restaurants_elements_list, max_attempts=5):
+        print(f"No restaurants with search word: {search_word}...")
         return 0
-
-    # Saving search URL
-    saved_search_url = page.url
-
+    
+    soup = BeautifulSoup(restaurants_elements_list.inner_html(), "html.parser")
+    # Finding all URLs that have the search word category
+    search_word_restaurants_urls = fetch_restaurants_url(soup)
+    if not search_word_restaurants_urls:
+        print(f"No restaurants with search word: {search_word}...")
+    # Limiting to 10 URLs
+    if len(search_word_restaurants_urls) >= 10:
+        search_word_restaurants_urls = search_word_restaurants_urls[:10]
     # Starting to collect menus
     df_lst = []
-    count_restaurants = 0 
-    for i in range(0, restaurants_elements_list.count()):
-        # Only collecting first 10 restaurants
-        if count_restaurants>=10:
-            break
-        print(f"Collecting restaurant {count_restaurants+1}...")
-        # This will always work, as i goes up to number of elements found in restaurants_elements_list
-        ele = restaurants_elements_list.nth(i)
-        restaurant_name = ele.locator("[class=\"merchant-v2__name\"]").inner_text() if ele.locator("[class=\"merchant-v2__name\"]").count() > 0 else "-"
-        restaurant_search_word_info = ele.locator("[class=\"merchant-v2__info\"]").inner_text() if ele.locator("[class=\"merchant-v2__info\"]").count() > 0 else "-"
-        restaurant_search_word_info = re.findall(search_word, restaurant_search_word_info)
-        # Checking if the restaurant has the search word category, otherwise, we ignore it...
-        if search_word not in restaurant_search_word_info:
-            print(f"Search Word not present in restaurant_search_word_info = {restaurant_search_word_info}...")
+    for i, url in enumerate(search_word_restaurants_urls):
+        # This will always work, as i goes up to number of elements found in search_word_restaurants_urls
+        page.goto(url)
+        # Waiting for restaurant data to load up
+        # Ensuring we wait for text data for at least 5 seconds
+        dish_card_wrapper = page.locator("[class=\"dish-card-wrapper\"]")
+        if not wait_for_text_data(dish_card_wrapper, max_attempts=5):
+            print(f"Could not fetch menu from {url.split("/")[-2]}...")
             continue
-        ele.click()
-        # Fetching HTML
-        restaurant_menu_wrapper = page.locator("[class=\"restaurant__fast-menu\"]")
-        # Waiting for dishes to load up (Otherwise, we get an empty HTML)
-        dish_wrapper = restaurant_menu_wrapper.locator("[class=\"dish-card-wrapper\"]")
-        wait_for_element(dish_wrapper)
-        menu_html = restaurant_menu_wrapper.inner_html()
-        # Fetching Menu
+
+        # Fetching restaurant name after the whole page loaded
+        restaurant_name = page.locator("[class=\"merchant-info__title\"]").inner_text()
+        print(f"Collecting restaurant {i+1}: {restaurant_name}...")
+
+        menu_wrapper = page.locator("[class=\"restaurant__fast-menu\"]")
+        menu_html = menu_wrapper.inner_html()
         soup = BeautifulSoup(menu_html, "html.parser")
         df_menu = fetch_restaurant_menu(soup)
+
         # If the tab is not restaurant like (Supermarket/Beverages, etc)
         if isinstance(df_menu, int):
             print("This is not a restaurant...")
-            break
+            continue
+
         # Adding Restaurant Name and Searchword to the DataFrame
+        df_menu.insert(loc=0, column='palavra_chave', value=search_word)
         df_menu.insert(loc=0, column='nome_restaurante', value=restaurant_name)
-        df_menu.insert(loc=1, column='palavra_chave', value=search_word)
         df_lst.append(df_menu)
-        # Incrementing restaurant counter
-        count_restaurants += 1
-        # Returning to the Search Page (Restaurants)
-        page.goto(saved_search_url)
-        # Delay between clicking os restaurants
-        time.sleep(10)
+        # Delay between collecting menus
+        time.sleep(20)
     # ---------------------
     context.close()
     browser.close()
 
     # When no restaurants have been found
     if not df_lst:
+        print(f"No restaurants with valid menu found for search word: {search_word}!!")
         return 0
     # If we have found restaurants
     df = pd.concat(df_lst)
+    # Checking if some searchword has skipped a restaurant from its list
+    if len(df['nome_restaurante'].unique()) != len(search_word_restaurants_urls):
+        with open("possible_search_word_problems.txt", "w+") as f:
+            f.write(search_word)
     # Outputting file to a folder where we use as backup, so if we get IP blocked, we do not lose all progress
     file_path = f"outputs/coleta-menus-{search_word}-{dt.datetime.today().strftime("%d-%m-%Y")}.xlsx"
     df.to_excel(file_path)
     return df
+
+
+
 
 def generate_final_spreadsheet():
     # Fetching all backups into a file
@@ -203,6 +244,9 @@ def generate_final_spreadsheet():
     wb.close()
     print("Scraping has been successful!")
 
+
+
+
 with sync_playwright() as playwright:
     address = "Avenida João Pinheiro, 100. Centro - Belo Horizonte"
     with open("search_words.txt", "r", encoding="utf-8") as f:
@@ -214,7 +258,7 @@ with sync_playwright() as playwright:
             continue
         search_word = search_word[:-2] # Ignoring the "collected tag" (which shows wether we should collect this keyword or not), it helps with backup
         print(f"Collecting search word: {search_word}")
-        df_search_word = run(playwright, address, search_word)
+        df_search_word = collect_search_word(playwright, address, search_word)
         if isinstance(df_search_word, pd.DataFrame):
             search_words[index] = search_word + ":d" # Setting "collected tag" as "d" for Done (to not collect after it something goes wrong)
             # Writing back to the text file so we can save the collect progress
@@ -224,7 +268,8 @@ with sync_playwright() as playwright:
         elif isinstance(df_search_word, int):
             print("Moving to the next search word, as the current search word yields no restaurants...")
         # Sleeping for 2 minutes in order to avoid IP block (This feature is optional, but makes things more consistent)
-        time.sleep(120)
+        if index != (len(search_words) - 1):
+            time.sleep(120)
     
     # When all scraping part has finished
     generate_final_spreadsheet()
