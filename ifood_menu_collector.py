@@ -268,7 +268,7 @@ with sync_playwright() as playwright:
     with open("search_words.txt", "r", encoding="utf-8") as f:
         search_words = f.read().splitlines()
     # Skipping those already collected
-    search_word = [word for word in search_words if ":n" in word]
+    search_words = [word for word in search_words if ":n" in word]
     for index, search_word in enumerate(search_words):
         search_word = search_word[:-2] # Ignoring the "collected tag" (which shows wether we should collect this keyword or not), it helps with backup
         print(f"Collecting search word: {search_word}")
