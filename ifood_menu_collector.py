@@ -105,17 +105,21 @@ def fetch_restaurant_menu(soup):
 
 
 
-
+# Fetches restaurant URLs
+# They cannot have the same name, so we do not fetch the SAME MENU
 def fetch_restaurants_url(soup):
-    with open("casa_de_sucos.txt", "w+") as f:
-        f.write(soup.prettify())
     search_word_restaurants_urls = []
+    names = []
     all_restaurants = soup.find_all("div", attrs={"class":"merchant-list-v2__item-wrapper"})
     for restaurant in all_restaurants:
         description = find_element_text(restaurant, tag="div", attrs={"class":"merchant-v2__info"})
-        if search_word in description:
+        name = find_element_text(restaurant, tag="span", attrs={"class":"merchant-v2__name"})
+        if (search_word in description):
             url = "https://www.ifood.com.br" + restaurant.find("a").get("href")
-            search_word_restaurants_urls.append(url)
+            if name not in names:
+                search_word_restaurants_urls.append(url)
+                names.append(name)
+
     return search_word_restaurants_urls
 
 
@@ -150,7 +154,15 @@ def collect_search_word(playwright: Playwright, address, search_word) -> None:
     page.locator("[data-test-id=\"search-input-field\"]").press("Enter")
 
     # Wait until "Ver Mais" Button Shows up
-    page.get_by_text("Ver Mais").is_visible()
+    ver_mais_btn = page.get_by_text("Ver Mais")
+    if not wait_for_element(ver_mais_btn):
+        print("Não há botão de ver mais")
+    
+    while ver_mais_btn.count() > 0:
+        ver_mais_btn.click()
+        if not wait_for_element(ver_mais_btn):
+            print("Não há MAIS botões de ver mais")
+            break
 
     # Waiting for restaurant data to load up
     restaurants_elements_list = page.locator("[class=\"merchant-list-v2\"]")
@@ -267,9 +279,10 @@ with sync_playwright() as playwright:
     address = "Avenida João Pinheiro, 100. Centro - Belo Horizonte"
     with open("search_words.txt", "r", encoding="utf-8") as f:
         search_words = f.read().splitlines()
-    # Skipping those already collected
-    search_words = [word for word in search_words if ":n" in word]
+    count = len([word for word in search_words if ":n" in word])
     for index, search_word in enumerate(search_words):
+        if ":n" not in search_word:
+            continue
         search_word = search_word[:-2] # Ignoring the "collected tag" (which shows wether we should collect this keyword or not), it helps with backup
         print(f"Collecting search word: {search_word}")
         df_search_word = collect_search_word(playwright, address, search_word)
@@ -286,7 +299,7 @@ with sync_playwright() as playwright:
                 f.write("\n".join(search_words))
             print("Moving to the next search word, as the current search word yields no restaurants...")
         # Sleeping for 2 minutes in order to avoid IP block (This feature is optional, but makes things more consistent)
-        if index != (len(search_words) - 1):
+        if index < (count-1):
             time.sleep(120)
     
     # When all scraping part has finished
