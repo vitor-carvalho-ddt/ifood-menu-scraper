@@ -1,4 +1,4 @@
-from playwright.sync_api import Playwright, sync_playwright, expect
+from playwright.sync_api import Playwright, sync_playwright
 from openpyxl import load_workbook
 from bs4 import BeautifulSoup
 import datetime as dt
@@ -11,7 +11,7 @@ import os
 ## GEOLOCATION IS REGARDING - Federal University of Minas Gerais (UFMG)
 ## ONLY USE codegen IF YOU WANT TO GENERATE THE CODE USING PLAYWRIGHT
 ## PASS THE URL AS LAST ARGUMENT
-## playwright codegen --timezone="Brazil/East" --geolocation="-19.870570990751865, -43.967757361113414" --lang="pt-BR" "https://www.ifood.com.br/"
+## playwright codegen --timezone="brazil/east" --geolocation="-19.870570990751865, -43.967757361113414" --lang="pt-br" "https://www.ifood.com.br/"
 
 ## Function to await for element up to a gicen time
 def wait_for_element(element, timer=20):
@@ -125,7 +125,7 @@ def fetch_restaurants_url(soup):
 
 
 
-def collect_search_word(playwright: Playwright, address, search_word) -> None:
+def collect_search_word(playwright: Playwright, address, search_word, restaurant_name) -> pd.DataFrame | int:
     browser = playwright.chromium.launch(headless=False)
     user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
     context = browser.new_context(user_agent=user_agent, geolocation={"latitude":-19.860570990751865,"longitude":-43.967757361113414}, locale="pt-BR", permissions=["geolocation"], timezone_id="Brazil/East")
@@ -150,7 +150,10 @@ def collect_search_word(playwright: Playwright, address, search_word) -> None:
 
     # Filling Search Word
     page.locator("[data-test-id=\"search-input-field\"]").click()
-    page.locator("[data-test-id=\"search-input-field\"]").fill(search_word)
+    if restaurant_name:
+        page.locator("[data-test-id=\"search-input-field\"]").fill(restaurant_name)
+    else:
+        page.locator("[data-test-id=\"search-input-field\"]").fill(search_word)
     page.locator("[data-test-id=\"search-input-field\"]").press("Enter")
 
     # Wait until "Ver Mais" Button Shows up
@@ -236,11 +239,12 @@ def collect_search_word(playwright: Playwright, address, search_word) -> None:
         with open("possible_search_word_problems.txt", "w+") as f:
             f.write(search_word)
     # Outputting file to a folder where we use as backup, so if we get IP blocked, we do not lose all progress
-    file_path = f"outputs/coleta-menus-{search_word}-{dt.datetime.today().strftime("%d-%m-%Y")}.xlsx"
+    if restaurant_name:
+        file_path = f"outputs/coleta-menus-{restaurant_name}-{dt.datetime.today().strftime("%d-%m-%Y")}.xlsx"
+    else:
+        file_path = f"outputs/coleta-menus-{search_word}-{dt.datetime.today().strftime("%d-%m-%Y")}.xlsx"
     df.to_excel(file_path)
     return df
-
-
 
 
 def generate_final_spreadsheet():
@@ -277,26 +281,34 @@ def generate_final_spreadsheet():
 # f -> yields no restaurants
 with sync_playwright() as playwright:
     address = "Avenida João Pinheiro, 100. Centro - Belo Horizonte"
-    with open("search_words.txt", "r", encoding="utf-8") as f:
-        search_words = f.read().splitlines()
-    count = len([word for word in search_words if ":n" in word])
-    for index, search_word in enumerate(search_words):
-        if ":n" not in search_word:
+    with open("search_data.txt", "r", encoding="utf-8") as f:
+        search_data = f.read().splitlines()
+    count = len([word for word in search_data if ":n" in word])
+    for index, data_line in enumerate(search_data):
+        data_fields = data_line.split(":")
+        search_word = data_fields[0]
+        to_collect = data_fields[-1]
+        if to_collect != "n":
             continue
-        search_word = search_word[:-2] # Ignoring the "collected tag" (which shows wether we should collect this keyword or not), it helps with backup
+        address = "Avenida João Pinheiro, 100. Centro - Belo Horizonte"
+        restaurant_name = ""
+        if len(data_fields) > 2:
+            address = data_fields[1]
+            restaurant_name = data_fields[2]
+
         print(f"Collecting search word: {search_word}")
-        df_search_word = collect_search_word(playwright, address, search_word)
+        df_search_word = collect_search_word(playwright, address, search_word, restaurant_name)
         if isinstance(df_search_word, pd.DataFrame):
-            search_words[index] = search_word + ":d" # Setting "collected tag" as "d" for Done (to not collect after it something goes wrong)
+            search_data[index] = data_line[:-2] + ":d" # Setting "collected tag" as "d" for Done (to not collect after it something goes wrong)
             # Writing back to the text file so we can save the collect progress
-            with open("search_words.txt", "w+", encoding="utf-8") as f:
-                f.write("\n".join(search_words))
+            with open("search_data.txt", "w+", encoding="utf-8") as f:
+                f.write("\n".join(search_data))
             print(f"Finished collecting search word: {search_word}")
         elif isinstance(df_search_word, int):
-            search_words[index] = search_word + ":f" # Setting "collected tag" as "d" for Done (to not collect after it something goes wrong)
+            search_data[index] = data_line[:-2] + ":f" # Setting "collected tag" as "d" for Done (to not collect after it something goes wrong)
             # Writing back to the text file so we can tag "no restaurants" search words
-            with open("search_words.txt", "w+", encoding="utf-8") as f:
-                f.write("\n".join(search_words))
+            with open("search_data.txt", "w+", encoding="utf-8") as f:
+                f.write("\n".join(search_data))
             print("Moving to the next search word, as the current search word yields no restaurants...")
         # Sleeping for 2 minutes in order to avoid IP block (This feature is optional, but makes things more consistent)
         if index < (count-1):
