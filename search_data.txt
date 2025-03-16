@@ -1,0 +1,69 @@
+Crepe:Barreiro - BH:Paraiso do Crepe & Cia:d
+Portuguesa:Barreiro - BH:Pregu's Hamburgueria:d
+Africana :Barreiro - BH:Alecrim Cozinha Afetiva:n
+Crepe:Barreiro - BH :M&e Crepe-viashopping:n
+Congelados Fit:Betania - BH:Vivalev:n
+Tapioca:Goiania - BH:Raízes:n
+Portuguesa:Lourdes - BH:Restaurante do Porto Lourdes:n
+Congelados Fit:Padre Eustaquio - BH:Leve Amor Sem Glúten:n
+Congelados Fit:Padre Eustaquio - BH:Equilíbrio Fitness:n
+Baiana:PUC Minas - São Gabriel:Cuscuz Sabará:n
+Crepe:R. Botucatu,250 - BH:Bhang Crepe Francês:n
+Baiana:R. Botucatu,250 - BH:O Dendê Baiano - A Bahia em Minas:n
+Baiana:R. Riachuelo, 1827 - BH:Acarajé do Baiano:n
+Espanhola:São Lucas - BH :Andaluz Gastronomia:n
+Alemã:UFMG - Pampulha:Haus Munchen e Albanos:n
+Nordestina:UFMG Pampulha:Cuscuz do Fred:n
+Argentina:UFMG Pampulha:Huguitos Empanadas:n
+Argentina:UFMG Pampulha:Delícias Argentinas Brasil:n
+Mediterranea:Belvedere - BH:Olivia Mediterrâneo:n
+Açaí:d
+Sorvetes:d
+Cafeteria:d
+Doces & Bolos:d
+Padaria:d
+Africana:d
+Alemã:d
+Árabe:d
+Argentina:d
+Asiática:d
+Chinesa:d
+Colombiana:d
+Contemporânea:d
+Espanhola:d
+Francesa:d
+Indiana:d
+Italiana:d
+Japonesa:d
+Mediterrânea:d
+Mexicana:d
+Peruana:d
+Portuguesa:d
+Baiana:d
+Brasileira:d
+Gaúcha:d
+Marmita:d
+Mineira:d
+Nordestina:d
+Carnes:d
+Frangos:d
+Frutos Do Mar:d
+Peixes:d
+Hambúrguer:d
+Lanches:d
+Pastel:d
+Pizza:d
+Salgados:d
+Xis:d
+Crepe:d
+Congelados Fit:d
+Casa de Sucos:d
+Panqueca:d
+Saudável:d
+Sopas & Caldos:d
+Tapioca:d
+Vegana:d
+Vegetariana:d
+Congelados:d
+Cozinha Rápida:d
+Variada:d
